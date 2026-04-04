@@ -22,6 +22,7 @@ requirements:
       vehicle.drivetrain.electricEngine.charging.timeRemaining
       vehicle.drivetrain.electricEngine.kombiRemainingElectricRange
       vehicle.powertrain.electric.battery.stateOfCharge.target
+      vehicle.powertrain.electric.battery.charging.power
       vehicle.vehicle.preConditioning.activity
       vehicle.vehicle.travelledDistance
       ```
@@ -42,6 +43,7 @@ requirements:
       vehicle.drivetrain.electricEngine.charging.timeRemaining
       vehicle.drivetrain.electricEngine.kombiRemainingElectricRange
       vehicle.powertrain.electric.battery.stateOfCharge.target
+      vehicle.powertrain.electric.battery.charging.power
       vehicle.vehicle.preConditioning.activity
       vehicle.vehicle.travelledDistance
       ```

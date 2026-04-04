@@ -152,12 +152,21 @@ func (lp *Loadpoint) setActiveVehicle(v api.Vehicle) {
 			lp.SetMode(mode)
 		}
 
+		if vMeter, ok := api.Cap[api.Meter](v); ok && !lp.HasChargeMeter() {
+			lp.log.DEBUG.Print("Loadpoint has no charge meter but vehicle has")
+			lp.previousMeter = lp.chargeMeter
+			lp.chargeMeter = vMeter
+		}
+
 		lp.addTask(lp.vehicleOdometer)
 
 		lp.progress.Reset()
 	} else {
 		lp.socEstimator = nil
 		lp.unpublishVehicleIdentity()
+		if lp.previousMeter != nil {
+			lp.chargeMeter = lp.previousMeter
+		}
 	}
 
 	// re-publish vehicle settings

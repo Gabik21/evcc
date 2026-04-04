@@ -26,11 +26,12 @@ var requiredKeys = []string{
 	"vehicle.drivetrain.electricEngine.charging.timeRemaining",
 	"vehicle.drivetrain.electricEngine.kombiRemainingElectricRange",
 	"vehicle.powertrain.electric.battery.stateOfCharge.target",
+	"vehicle.powertrain.electric.battery.charging.power",
 	"vehicle.vehicle.preConditioning.activity",
 	"vehicle.vehicle.travelledDistance",
 }
 
-const requiredVersion = "v4"
+const requiredVersion = "v5"
 
 type API struct {
 	*request.Helper

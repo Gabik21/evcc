@@ -139,6 +139,7 @@ type Loadpoint struct {
 
 	circuit        api.Circuit // Circuit
 	chargeMeter    api.Meter   // Charger usage meter
+	previousMeter  api.Meter
 	vehicle        api.Vehicle // Currently active vehicle
 	defaultVehicle api.Vehicle // Default vehicle (disables detection)
 	coordinator    coordinator.API
@@ -422,7 +423,9 @@ func (lp *Loadpoint) configureChargerType(charger api.Charger) {
 			}
 		} else {
 			mt := new(wrapper.ChargeMeter)
-			_ = lp.bus.Subscribe(evChargeCurrent, lp.evChargeCurrentWrappedMeterHandler)
+			_ = lp.bus.Subscribe(evChargeCurrent, func(current float64) {
+				lp.evChargeCurrentWrappedMeterHandler(mt, current)
+			})
 			_ = lp.bus.Subscribe(evChargeStop, func() { mt.SetPower(0) })
 			lp.chargeMeter = mt
 		}
@@ -613,7 +616,7 @@ func (lp *Loadpoint) evChargeCurrentHandler(current float64) {
 // It assumes that the charge meter cannot consume more than total household consumption.
 // If physical charge meter is present this handler is not used.
 // The actual value is published by the evChargeCurrentHandler
-func (lp *Loadpoint) evChargeCurrentWrappedMeterHandler(current float64) {
+func (lp *Loadpoint) evChargeCurrentWrappedMeterHandler(meter *wrapper.ChargeMeter, current float64) {
 	power := current * float64(lp.ActivePhases()) * Voltage
 
 	// if disabled we cannot be charging
@@ -622,7 +625,7 @@ func (lp *Loadpoint) evChargeCurrentWrappedMeterHandler(current float64) {
 	}
 
 	// handler only called if charge meter was replaced by dummy
-	lp.chargeMeter.(*wrapper.ChargeMeter).SetPower(power)
+	meter.SetPower(power)
 }
 
 // defaultMode executes the action

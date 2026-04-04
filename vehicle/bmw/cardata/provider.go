@@ -270,3 +270,16 @@ func (v *Provider) Position() (float64, float64, error) {
 
 	return lat, lon, nil
 }
+
+var _ api.Meter = (*Provider)(nil)
+
+func (v *Provider) CurrentPower() (float64, error) {
+	if status, err := v.Status(); err != nil || status != api.StatusC {
+		return 0, nil
+	}
+	power, err := v.Float("vehicle.powertrain.electric.battery.charging.power")
+	if err != nil {
+		return 0, err
+	}
+	return power, nil
+}
