@@ -52,7 +52,7 @@
 
 					<div v-if="authRequired">
 						<PropertyEntry
-							v-for="param in authParams"
+							v-for="param in authNormalParams"
 							:id="`${deviceType}Param${param.Name}`"
 							:key="param.Name"
 							v-bind="param"
@@ -60,6 +60,19 @@
 							:service-values="serviceValues[param.Name]"
 							:currency="currency"
 						/>
+						<PropertyCollapsible v-if="authAdvancedParams.length">
+							<template #advanced>
+								<PropertyEntry
+									v-for="param in authAdvancedParams"
+									:id="`${deviceType}Param${param.Name}`"
+									:key="param.Name"
+									v-bind="param"
+									v-model="values[param.Name]"
+									:service-values="serviceValues[param.Name]"
+									:currency="currency"
+								/>
+							</template>
+						</PropertyCollapsible>
 
 						<div v-if="auth.code">
 							<hr class="my-5" />
@@ -165,7 +178,11 @@
 					@save="handleSave"
 					@remove="handleRemove"
 					@test="testManually"
-				/>
+				>
+					<template #after-test>
+						<slot name="after-test" :values="values"></slot>
+					</template>
+				</DeviceModalActions>
 			</template>
 		</form>
 	</GenericModal>
@@ -188,6 +205,7 @@ import YamlEntry from "./YamlEntry.vue";
 import AuthCodeDisplay from "../AuthCodeDisplay.vue";
 import AuthConnectButton from "../AuthConnectButton.vue";
 import { initialTestState, performTest } from "../utils/test";
+import { reportValidityInModal } from "../utils/reportValidityInModal";
 import { initialAuthState, prepareAuthLogin } from "../utils/authProvider";
 import sleep from "@/utils/sleep";
 import { ConfigType } from "@/types/evcc";
@@ -329,6 +347,12 @@ export default defineComponent({
 			const { params = [] } = this.template?.Auth ?? {};
 			return this.templateParams.filter((p) => params.includes(p.Name));
 		},
+		authNormalParams() {
+			return this.authParams.filter((p: TemplateParam) => !p.Advanced && !p.Deprecated);
+		},
+		authAdvancedParams() {
+			return this.authParams.filter((p: TemplateParam) => p.Advanced || p.Deprecated);
+		},
 		normalParams() {
 			return this.templateParams.filter((p) => !p.Advanced && !p.Deprecated);
 		},
@@ -428,8 +452,13 @@ export default defineComponent({
 			return this.template?.Auth && !this.auth.ok;
 		},
 		authValuesMissing() {
-			console.log("authValuesMissing", this.authValues);
-			return this.template?.Auth && Object.values(this.authValues).some((value) => !value);
+			const authParamNames: string[] = this.template?.Auth?.params ?? [];
+			return (
+				authParamNames.length > 0 &&
+				this.templateParams
+					.filter((p: TemplateParam) => authParamNames.includes(p.Name) && p.Required)
+					.some((p: TemplateParam) => !this.values[p.Name])
+			);
 		},
 		authValues() {
 			const params = this.template?.Auth?.params ?? [];
@@ -512,6 +541,11 @@ export default defineComponent({
 		},
 		values: {
 			handler() {
+				// a prior test result no longer matches the edited config:
+				// revert "Save anyway" back to "Validate & save"
+				if (this.test.isError || this.test.isSuccess) {
+					this.test = initialTestState();
+				}
 				this.updateServiceValues();
 			},
 			deep: true,
@@ -618,7 +652,7 @@ export default defineComponent({
 
 			// trigger browser validation
 			if (this.$refs["form"]) {
-				if (!(this.$refs["form"] as HTMLFormElement).reportValidity()) {
+				if (!reportValidityInModal(this.$refs["form"] as HTMLFormElement)) {
 					return;
 				}
 			}
@@ -627,9 +661,10 @@ export default defineComponent({
 			if (this.authValuesMissing) return;
 
 			const { type } = this.template.Auth;
-			const values = this.authValues;
+			// include the template name so the backend can resolve masked fields
+			const values = { ...this.authValues, template: this.templateName };
 			this.auth.loading = true;
-			const result = await this.device.checkAuth(type, values);
+			const result = await this.device.checkAuth(type, values, this.id);
 			this.auth.loading = false;
 			if (result.success) {
 				// login already exists
@@ -688,7 +723,6 @@ export default defineComponent({
 					this.testDevice,
 					this.$refs["form"] as HTMLFormElement
 				);
-				console.log("test result", success);
 				if (!success) {
 					return;
 				}

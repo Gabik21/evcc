@@ -9,9 +9,9 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"time"
 
 	"dario.cat/mergo"
-	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/api/globalconfig"
 	"github.com/evcc-io/evcc/charger"
 	"github.com/evcc-io/evcc/core/circuit"
@@ -21,7 +21,6 @@ import (
 	"github.com/evcc-io/evcc/meter"
 	"github.com/evcc-io/evcc/server/db/settings"
 	"github.com/evcc-io/evcc/tariff"
-	"github.com/evcc-io/evcc/util"
 	"github.com/evcc-io/evcc/util/config"
 	"github.com/evcc-io/evcc/util/templates"
 	"github.com/evcc-io/evcc/vehicle"
@@ -274,15 +273,28 @@ func deviceStatusHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
+		if errors.Is(err, config.ErrNotFound) {
+			jsonError(w, http.StatusNotFound, err)
+			return
+		}
 		jsonError(w, http.StatusBadRequest, err)
 		return
 	}
 
-	jsonWrite(w, testInstance(instance))
+	// bound the value-probe phase so a blocking getter cannot stall the response
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	jsonWrite(w, testInstance(ctx, instance))
 }
 
 func newDevice[T any](ctx context.Context, class templates.Class, req configReq, newFromConf newFromConfFunc[T], h config.Handler[T], force bool) (*config.Config, error) {
-	instance, err := newFromConf(ctx, req.Type, req.Other)
+	typ, other, err := config.CustomDevice(req.Type, req.Other)
+	if err != nil && !force {
+		return nil, err
+	}
+
+	instance, err := newFromConf(ctx, typ, other)
 	if err != nil && !force {
 		return nil, err
 	}
@@ -327,9 +339,7 @@ func newDeviceHandler(w http.ResponseWriter, r *http.Request) {
 		conf, err = newDevice(ctx, class, req, vehicle.NewFromConfig, config.Vehicles(), force)
 
 	case templates.Circuit:
-		conf, err = newDevice(ctx, class, req, func(ctx context.Context, _ string, other map[string]any) (api.Circuit, error) {
-			return circuit.NewFromConfig(ctx, util.NewLogger("circuit"), other)
-		}, config.Circuits(), force)
+		conf, err = newDevice(ctx, class, req, circuit.NewFromConfig, config.Circuits(), force)
 
 	case templates.Tariff:
 		conf, err = newDevice(ctx, class, req, tariff.NewFromConfig, config.Tariffs(), force)
@@ -414,9 +424,7 @@ func updateDeviceHandler(w http.ResponseWriter, r *http.Request) {
 		err = updateDevice(ctx, id, class, req, vehicle.NewFromConfig, config.Vehicles(), force)
 
 	case templates.Circuit:
-		err = updateDevice(ctx, id, class, req, func(ctx context.Context, _ string, other map[string]any) (api.Circuit, error) {
-			return circuit.NewFromConfig(ctx, util.NewLogger("circuit"), other)
-		}, config.Circuits(), force)
+		err = updateDevice(ctx, id, class, req, circuit.NewFromConfig, config.Circuits(), force)
 
 	case templates.Tariff:
 		err = updateDevice(ctx, id, class, req, tariff.NewFromConfig, config.Tariffs(), force)
@@ -622,7 +630,12 @@ func deleteDeviceHandler(site site.API) func(w http.ResponseWriter, r *http.Requ
 
 func testConfig[T any](ctx context.Context, id int, class templates.Class, req configReq, newFromConf newFromConfFunc[T], h config.Handler[T]) (T, error) {
 	if id == 0 {
-		return newFromConf(ctx, req.Type, req.Other)
+		typ, other, err := config.CustomDevice(req.Type, req.Other)
+		if err != nil {
+			var zero T
+			return zero, err
+		}
+		return newFromConf(ctx, typ, other)
 	}
 
 	_, instance, _, err := deviceInstanceFromMergedConfig(ctx, id, class, req, newFromConf, h)
@@ -670,7 +683,7 @@ func testConfigHandler(w http.ResponseWriter, r *http.Request) {
 		instance, err = testConfig(ctx, id, class, req, vehicle.NewFromConfig, config.Vehicles())
 
 	case templates.Circuit:
-		err = api.ErrNotAvailable
+		instance, err = testConfig(ctx, id, class, req, circuit.NewFromConfig, config.Circuits())
 
 	case templates.Tariff:
 		instance, err = testConfig(ctx, id, class, req, tariff.NewFromConfig, config.Tariffs())
@@ -689,5 +702,9 @@ func testConfigHandler(w http.ResponseWriter, r *http.Request) {
 	close(done)
 	defer cancel()
 
-	jsonWrite(w, testInstance(instance))
+	// bound the value-probe phase so a blocking getter cannot stall the response
+	probeCtx, probeCancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer probeCancel()
+
+	jsonWrite(w, testInstance(probeCtx, instance))
 }

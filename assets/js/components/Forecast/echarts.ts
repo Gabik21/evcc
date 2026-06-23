@@ -1,5 +1,6 @@
 import * as echarts from "echarts/core";
 import colors from "@/colors";
+import escapeHtml from "@/utils/escapeHtml";
 import type { ForecastSlot } from "./types";
 import { BarChart, LineChart } from "echarts/charts";
 import {
@@ -53,7 +54,7 @@ export function markPointLabel(
     animation: true,
     clip: true,
     symbol: "rect",
-    symbolSize: 1,
+    symbolSize: 0,
     label: {
       show: true,
       position: "top",
@@ -63,7 +64,7 @@ export function markPointLabel(
       color: colors.background,
       backgroundColor: color,
       borderRadius: 4,
-      padding: [5, 10],
+      padding: [5, 15],
       offset: [0, -2],
       formatter: (p: { data: { value: string } }) => p.data.value,
     },
@@ -110,8 +111,37 @@ export function tooltipStyle(
   };
 }
 
+export interface TooltipRow {
+  name?: string;
+  values: string[];
+}
+
+// Shared tooltip: bold date headline, non-bold rows, optional name + value columns.
+export function tooltipTable(head: string, rows: TooltipRow[], headers?: string[]): string {
+  const hasName = rows.some((r) => r.name != null);
+  const valueCols = Math.max(1, ...rows.map((r) => r.values.length));
+  const colCount = (hasName ? 1 : 0) + valueCols;
+  // lone value centers under the date; multiple columns line up right
+  const valCls = hasName || valueCols > 1 ? "fw-normal text-end ps-3" : "fw-normal text-center";
+  const headerRow = headers?.length
+    ? `<tr>${hasName ? "<td></td>" : ""}${headers
+        .map((h) => `<td class="fw-normal text-end ps-3">${h}</td>`)
+        .join("")}</tr>`
+    : "";
+  const body = rows
+    .map((r) => {
+      const nameTd = hasName
+        ? `<td class="fw-normal text-start">${escapeHtml(r.name ?? "")}</td>`
+        : "";
+      const valTds = r.values.map((v) => `<td class="${valCls}">${v}</td>`).join("");
+      return `<tr>${nameTd}${valTds}</tr>`;
+    })
+    .join("");
+  return `<table class="lh-sm"><thead><tr><th colspan="${colCount}" class="fw-bold text-center">${head}</th></tr></thead><tbody>${headerRow}${body}</tbody></table>`;
+}
+
 export function forecastGrid() {
-  return { top: 36, right: 16, bottom: 4, left: 34, borderWidth: 0 };
+  return { top: 36, right: 16, bottom: 16, left: 24, borderWidth: 0 };
 }
 
 export function forecastXAxes(startDate: Date, endDate: Date, weekdayShort: (d: Date) => string) {
@@ -167,13 +197,13 @@ export function forecastYAxis(overrides: Record<string, unknown> = {}) {
     axisLine: { show: false },
     axisTick: { show: false },
     splitLine: {
-      showMinLine: false,
+      showMinLine: true,
       showMaxLine: false,
       lineStyle: { color: colors.border || "" },
     },
     axisLabel: {
       fontSize: 10,
-      opacity: 0.5,
+      opacity: 0.75,
       ...(axisLabel as Record<string, unknown>),
     },
     ...rest,
@@ -194,7 +224,7 @@ export function filterForecastSlots(
 }
 
 export function minSlotIndex(slots: ForecastSlot[]): number {
-  return slots.reduce((min, s, i) => (s.value < (slots[min]?.value || Infinity) ? i : min), 0);
+  return slots.reduce((min, s, i) => (s.value < (slots[min]?.value ?? Infinity) ? i : min), 0);
 }
 
 export function maxSlotIndex(slots: ForecastSlot[]): number {

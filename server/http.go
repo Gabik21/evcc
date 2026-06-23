@@ -15,6 +15,7 @@ import (
 	"github.com/evcc-io/evcc/hems/shm"
 	"github.com/evcc-io/evcc/server/assets"
 	"github.com/evcc-io/evcc/server/eebus"
+	"github.com/evcc-io/evcc/server/remote"
 	"github.com/evcc-io/evcc/server/service"
 	"github.com/evcc-io/evcc/util"
 	"github.com/evcc-io/evcc/util/auth"
@@ -158,7 +159,12 @@ func (s *HTTPd) RegisterSiteHandlers(site site.API) {
 		"updatesession":           {"PUT", "/session/{id:[0-9]+}", updateSessionHandler},
 		"deletesession":           {"DELETE", "/session/{id:[0-9]+}", deleteSessionHandler},
 		"gridsessions":            {"GET", "/gridsessions", gridSessionsHandler},
+		"energyhistory":           {"GET", "/history/energy", energyHistoryHandler},
+		"optimize":                {"POST", "/optimize", getHandler(site.Optimize)},
 		"telemetry2":              {"POST", "/settings/telemetry/{value:[01truefalse]+}", boolHandler(telemetry.Enable, telemetry.Enabled)},
+		"devicecolors":            {"PUT", "/devicecolors", updateDeviceColor(site)},
+
+		"optimizerchargingstrategy": {"POST", "/optimizerchargingstrategy/{value:[a-z_]+}", stringHandler(site.SetOptimizerChargingStrategy, site.GetOptimizerChargingStrategy)},
 	}
 
 	for _, r := range routes {
@@ -225,7 +231,7 @@ func (s *HTTPd) RegisterSiteHandlers(site site.API) {
 }
 
 // RegisterSystemHandler provides system level handlers
-func (s *HTTPd) RegisterSystemHandler(site *core.Site, pub publisher, cache *util.ParamCache, auth auth.Auth, shutdown func(), configFile string) {
+func (s *HTTPd) RegisterSystemHandler(site *core.Site, pub publisher, cache *util.ParamCache, auth auth.Auth, shutdown func(), configFile string, remoteAccess *remote.Remote) {
 	router := s.Server.Handler.(*mux.Router)
 
 	// api
@@ -271,6 +277,11 @@ func (s *HTTPd) RegisterSystemHandler(site *core.Site, pub publisher, cache *uti
 		for _, r := range routes {
 			api.Methods(r.Methods()...).Path(r.Pattern).Handler(r.HandlerFunc)
 		}
+
+		// API key endpoints require an authenticated session.
+		ensureAuth := ensureAuthHandler(auth)
+		api.Methods("GET").Path("/apikey").Handler(ensureAuth(apiKeyStatusHandler(auth)))
+		api.Methods("POST").Path("/apikey").Handler(ensureAuth(regenerateApiKeyHandler(auth)))
 	}
 
 	{ // api/config
@@ -279,6 +290,7 @@ func (s *HTTPd) RegisterSystemHandler(site *core.Site, pub publisher, cache *uti
 
 		routes := map[string]route{
 			"auth":               {"POST", "/auth", authHandler},
+			"authmerged":         {"POST", "/auth/{class:[a-z]+}/merge/{id:[0-9.]+}", authHandler},
 			"templates":          {"GET", "/templates/{class:[a-z]+}", templatesHandler},
 			"products":           {"GET", "/products/{class:[a-z]+}", productsHandler},
 			"devices":            {"GET", "/devices/{class:[a-z]+}", devicesConfigHandler},
@@ -296,6 +308,10 @@ func (s *HTTPd) RegisterSystemHandler(site *core.Site, pub publisher, cache *uti
 			"deletesponsortoken": {"DELETE", "/sponsortoken", deleteSponsorTokenHandler(pub)},
 			"experimental":       {"POST", "/experimental/{value:[01truefalse]+}", boolHandler(setExperimental(pub), getExperimental)},
 			"optimizer":          {"POST", "/optimizer/{value:[01truefalse]+}", boolHandler(setOptimizer(pub), getOptimizer)},
+			"remote":             {"POST", "/remote/{value:[01truefalse]+}", boolHandler(remoteAccess.Enable, remoteAccess.Enabled)},
+			"remoteclients":      {"GET", "/remote/clients", remoteClientsHandler(remoteAccess)},
+			"createremoteclient": {"POST", "/remote/clients", createRemoteClientHandler(remoteAccess)},
+			"deleteremoteclient": {"DELETE", "/remote/clients", deleteRemoteClientHandler(remoteAccess)},
 		}
 
 		// yaml handlers
@@ -324,6 +340,9 @@ func (s *HTTPd) RegisterSystemHandler(site *core.Site, pub publisher, cache *uti
 			routes["update"+key] = route{Method: "POST", Pattern: "/" + key, HandlerFunc: settingsSetJsonHandler(key, pub, fun)}
 			routes["delete"+key] = route{Method: "DELETE", Pattern: "/" + key, HandlerFunc: settingsDeleteJsonHandler(key, pub, fun())}
 		}
+
+		// ocpp forwarder rules apply at runtime and republish via the ocpp package
+		routes["updateocppforwarder"] = route{Method: "POST", Pattern: "/ocppforwarder", HandlerFunc: updateOcppForwarderHandler}
 
 		for _, r := range routes {
 			api.Methods(r.Methods()...).Path(r.Pattern).Handler(r.HandlerFunc)
@@ -365,18 +384,29 @@ func (s *HTTPd) RegisterSystemHandler(site *core.Site, pub publisher, cache *uti
 		api := api.PathPrefix("/system").Subrouter()
 		api.Use(ensureAuthHandler(auth))
 
-		// system api
 		routes := map[string]route{
 			"log":        {"GET", "/log", logHandler},
 			"logareas":   {"GET", "/log/areas", logAreasHandler},
 			"clearcache": {"DELETE", "/cache", clearCacheHandler},
-			"backup":     {"POST", "/backup", getBackup(auth)},
-			"restore":    {"POST", "/restore", restoreDatabase(auth, shutdown)},
-			"reset":      {"POST", "/reset", resetDatabase(auth, shutdown)},
 			"shutdown": {"POST", "/shutdown", func(w http.ResponseWriter, r *http.Request) {
 				shutdown()
 				w.WriteHeader(http.StatusNoContent)
 			}},
+		}
+
+		for _, r := range routes {
+			api.Methods(r.Methods()...).Path(r.Pattern).Handler(r.HandlerFunc)
+		}
+	}
+
+	{ // api/db — destructive DB operations; require session+X-Admin-Password or API key
+		api := api.PathPrefix("/db").Subrouter()
+		api.Use(ensureDbAuth(auth))
+
+		routes := map[string]route{
+			"backup":  {"GET", "/backup", getBackup()},
+			"restore": {"POST", "/restore", restoreDatabase(shutdown)},
+			"reset":   {"POST", "/reset", resetDatabase(shutdown)},
 		}
 
 		for _, r := range routes {

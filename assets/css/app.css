@@ -21,7 +21,7 @@
 	--evcc-darkest-green: #076f20ff;
 	--evcc-darkest-green-rgb: 7, 111, 32;
 	--evcc-yellow: #faf000;
-	--evcc-dark-yellow: #bbb400;
+	--evcc-dark-yellow: #f6bb0f;
 	--evcc-orange: #ff9000;
 	--evcc-orange-rgb: 255, 144, 0;
 	--evcc-red: #fc440f;
@@ -39,6 +39,7 @@
 	--evcc-pv: var(--evcc-dark-green);
 	--evcc-battery: var(--evcc-darker-green);
 	--evcc-export: var(--evcc-yellow);
+	--evcc-export-contrast: var(--evcc-dark-yellow);
 	--evcc-price: #ff912fff;
 	--evcc-co2: #00916eff;
 	--evcc-background: var(--bs-gray-bright);
@@ -53,6 +54,17 @@
 	--evcc-accent2: var(--evcc-darker-green);
 	--evcc-accent3: var(--evcc-darkest-green);
 
+	/* heating temperature bar: thermometer scale (cold -> hot) */
+	--evcc-temp-cold: #1b6fba;
+	--evcc-temp-warm: #ffa700;
+	--evcc-temp-hot: #e30022;
+	--evcc-heating-gradient: linear-gradient(
+		90deg,
+		var(--evcc-temp-cold) 5%,
+		var(--evcc-temp-warm) 20%,
+		var(--evcc-temp-warm) 40%,
+		var(--evcc-temp-hot) 95%
+	);
 	--evcc-transition-slow: 1000ms;
 	--evcc-transition-medium: 500ms;
 	--evcc-transition-fast: 250ms;
@@ -68,9 +80,6 @@
 	--bs-warning-border-subtle: color-mix(in srgb, var(--evcc-orange) 30%, transparent);
 	--bs-warning-text-emphasis: var(--evcc-orange);
 	--bs-danger-50: #dc354580;
-
-	--bs-danger: var(--evcc-red);
-	--bs-danger-rgb: var(--evcc-red-rgb);
 
 	--bs-danger: var(--evcc-red);
 	--bs-danger-rgb: var(--evcc-red-rgb);
@@ -93,13 +102,15 @@
 	--safe-area-inset-right: env(safe-area-inset-right, 0px);
 
 	--tab-bar-height: 3rem;
-	--bottom-space: 1.5px;
+	--bottom-space: calc(var(--tab-bar-height) + 1.5rem);
 	--tab-bar-background: var(--evcc-background);
 	--evcc-backdrop-blur: blur(20px);
 }
 
 :root.dark {
 	--evcc-grid: var(--bs-gray-medium);
+	--evcc-export: var(--evcc-yellow);
+	--evcc-export-contrast: var(--evcc-yellow);
 	--evcc-background: var(--bs-gray-deep);
 	--evcc-box: var(--bs-gray-dark);
 	--evcc-box-border: var(--bs-gray-darker);
@@ -186,6 +197,10 @@ h5 {
 	color: var(--evcc-co2) !important;
 }
 
+.text-export {
+	color: var(--evcc-export-contrast) !important;
+}
+
 a {
 	color: var(--bs-primary);
 }
@@ -207,7 +222,7 @@ a:hover {
 }
 
 .btn {
-	--bs-btn-border-width: 2px;
+	--bs-btn-border-width: 1px;
 }
 
 .btn-reset {
@@ -442,6 +457,11 @@ a:hover {
 	.modal-content {
 		padding: 2rem;
 	}
+}
+
+.modal {
+	/* prevent touch-scroll chaining from the modal to <html> on iOS Safari */
+	overscroll-behavior: contain;
 }
 
 .modal-body {
@@ -818,6 +838,6 @@ input::-webkit-date-and-time-value {
 	transition: opacity var(--evcc-transition-fast) ease 0.2s;
 }
 
-.app--bottomtabs .sticky-bottom {
+.sticky-bottom {
 	bottom: calc(var(--tab-bar-height) + 0.25rem);
 }

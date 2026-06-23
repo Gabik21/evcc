@@ -28,6 +28,7 @@ export type TemplateParam = {
   Advanced: boolean;
   Deprecated: boolean;
   Default?: string | number | boolean;
+  Type?: string;
   Choice?: string[];
   Service?: string;
   Usages?: TemplateParamUsage[];
@@ -89,11 +90,13 @@ export function handleError(e: any, msg: string) {
 
 export function applyDefaultsFromTemplate(template: Template | null, values: DeviceValues) {
   const params = template?.Params || [];
-  params
-    .filter((p) => p.Default && !values[p.Name])
-    .forEach((p) => {
+  params.forEach((p) => {
+    if (p.Default && !values[p.Name]) {
       values[p.Name] = p.Default;
-    });
+    } else if (p.Type === "Bool" && values[p.Name] === undefined) {
+      values[p.Name] = false; // initialize
+    }
+  });
 }
 
 export function customChargerName(type: ConfigType, isHeating: boolean) {
@@ -236,10 +239,18 @@ export function createDeviceUtils(deviceType: DeviceType) {
     return response.data;
   }
 
-  async function checkAuth(type: string, values: Record<string, any>): Promise<AuthCheckResponse> {
-    const params = { type, ...values };
+  async function checkAuth(
+    type: string,
+    values: Record<string, any>,
+    id?: number
+  ): Promise<AuthCheckResponse> {
+    const body = { type, ...values };
+    let url = `config/auth`;
+    if (id !== undefined) {
+      url += `/${deviceType}/merge/${id}`;
+    }
     try {
-      const { status, data = {} } = await api.post(`config/auth`, params, {
+      const { status, data = {} } = await api.post(url, body, {
         validateStatus: (status) => [204, 400].includes(status),
       });
       // already set up

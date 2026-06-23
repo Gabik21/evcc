@@ -86,18 +86,25 @@ func (t *Pun) run(done chan error) {
 			return res, backoffPermanentError(err)
 		}, bo())
 		if err != nil {
-			once.Do(func() { done <- err })
+			if reportError(&once, done, err) {
+				return
+			}
 			t.log.ERROR.Println(err)
 			continue
 		}
 
-		// get tomorrow data
+		// get tomorrow data (may not be available before ~13:00 CET)
 		res, err := backoff.RetryWithData(func() (api.Rates, error) {
 			res, err := t.getData(time.Now().AddDate(0, 0, 1))
+			if errors.Is(err, ErrPunDataNotAvailable) {
+				return res, backoff.Permanent(err)
+			}
 			return res, backoffPermanentError(err)
 		}, bo())
-		if err != nil {
-			once.Do(func() { done <- err })
+		if err != nil && !errors.Is(err, ErrPunDataNotAvailable) {
+			if reportError(&once, done, err) {
+				return
+			}
 			t.log.ERROR.Println(err)
 			continue
 		}
