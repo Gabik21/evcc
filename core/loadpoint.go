@@ -140,8 +140,8 @@ type Loadpoint struct {
 	chargeRater      api.ChargeRater
 	chargedAtStartup float64 // session energy at startup
 
-	circuit        api.Circuit        // Circuit
-	chargeMeter    api.Meter          // Charger usage meter
+	circuit        api.Circuit // Circuit
+	chargeMeter    api.Meter   // Charger usage meter
 	previousMeter  api.Meter
 	chargeEnergy   *metrics.Collector // Charger usage collector
 	vehicle        api.Vehicle        // Currently active vehicle
@@ -427,7 +427,7 @@ func (lp *Loadpoint) configureChargerType(charger api.Charger) {
 			// and for chargers that statically implement these interfaces
 			// (https://github.com/evcc-io/evcc/issues/29877).
 			if c, ok := charger.(api.Capable); ok {
-				lp.chargeMeter = &capableMeter{Meter: mt, Capable: c}
+				lp.chargeMeter = &capableMeter{Meter: mt, source: c}
 			} else {
 				lp.chargeMeter = mt
 			}
