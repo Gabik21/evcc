@@ -19,7 +19,7 @@ import colors, { lighterColor } from "@/colors";
 import formatter, { POWER_UNIT } from "@/mixins/formatter";
 import chartMixin from "./chartMixin";
 import { highestSlotIndexByDay } from "@/utils/forecast";
-import type { SolarDetails, TimeseriesEntry } from "./types";
+import type { SolarDetails, TimeseriesEntry } from "@/types/evcc";
 
 export default defineComponent({
 	name: "SolarChart",
@@ -89,7 +89,12 @@ export default defineComponent({
 						]);
 					},
 				},
-				xAxis: forecastXAxes(this.startDate, this.endDate, this.weekdayShort),
+				xAxis: forecastXAxes(
+					this.startDate,
+					this.endDate,
+					this.hourShort,
+					this.weekdayShort
+				),
 				yAxis: forecastYAxis({
 					max: (value: { max: number }) => {
 						const m = Math.max(value.max, this.combinedMax);
