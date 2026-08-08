@@ -486,8 +486,14 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 		}
 	}
 
-	// soft grid feed-in cap from active HEMS curtailment (e.g. German 70% rule):
-	// export is capped at this power, excess PV is curtailed instead of exported
+	// static grid export limit configured in the UI: export is capped at this
+	// power, excess PV is curtailed instead of exported
+	if limit := site.GetGridExportLimit(); limit > 0 {
+		req.Grid.PMaxExp = float32(limit)
+	}
+
+	// soft grid feed-in cap from active HEMS curtailment (e.g. German 70% rule)
+	// wins over the static limit while active
 	if curtailed := hems.Curtailed(site.hems); curtailed != nil && *curtailed {
 		if pMaxExp := site.hems.MaxProductionPower(); pMaxExp != nil {
 			req.Grid.PMaxExp = float32(*pMaxExp)
@@ -627,10 +633,8 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 	site.publishSuggestions()
 
 	// notify on actionable suggestion changes (advisory only, see #31903)
-	if site.pushChan != nil {
-		for _, ev := range site.diffSuggestions(site.pendingSuggestions(details.BatteryDetails)) {
-			site.pushChan <- ev
-		}
+	for _, ev := range site.diffSuggestions(site.pendingSuggestions(details.BatteryDetails)) {
+		site.pushEvent(ev)
 	}
 
 	return nil
@@ -796,10 +800,33 @@ func (site *Site) loadpointRequest(lp loadpoint.API, minLen int, firstSlotDurati
 	}
 
 	if demand != nil {
-		bat.PDemand = prorate(demand, firstSlotDuration)
+		// after prorate, so the shortened first slot counts with the energy it really carries
+		bat.PDemand = clearDemandWhenFull(prorate(demand, firstSlotDuration), bat.SMax-bat.SInitial)
 	}
 
 	return bat, detail
+}
+
+// clearDemandWhenFull zeroes the charge demand from the slot the accumulated energy fills the
+// vehicle. The optimizer drops the demand at s_max anyway, but pays two binaries per slot to
+// detect it, so slots that cannot bind are worth not asking about. Losses are accounted for.
+//
+// The cut assumes the demand is met every slot. A grid import limit can throttle charging below
+// it, moving the real fill point later than the estimate - the next request corrects that from
+// the measured soc, and the near slots are never affected because the cut sits a full charge away.
+func clearDemandWhenFull(demand []float32, headroom float32) []float32 {
+	res := slices.Clone(demand)
+
+	var acc float32
+	for i, d := range res {
+		if acc >= headroom {
+			res[i] = 0
+			continue
+		}
+		acc += d * eta
+	}
+
+	return res
 }
 
 func (site *Site) batteryRequest(dev config.Device[api.Meter], b types.Measurement, grid api.Rates, minLen int, firstSlotDuration time.Duration) (optimizer.BatteryConfig, batteryDetail) {

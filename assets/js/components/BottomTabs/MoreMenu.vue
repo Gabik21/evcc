@@ -12,7 +12,7 @@
 			@click="openAboutModal"
 		>
 			<span v-if="showVersionBadge" class="circle-badge me-1 bg-darker-green"></span>
-			<span>evcc</span>
+			<span>{{ customBrand || "evcc" }}</span>
 			<span class="ms-2 text-muted small">{{ versionLabel }}</span>
 			<shopicon-regular-gift
 				v-if="newVersionAvailable"
@@ -112,13 +112,11 @@ export default defineComponent({
 		installed: String,
 		commit: String,
 		availableVersion: String,
+		customBrand: String,
 	},
 	emits: ["close"],
 	data() {
-		return {
-			isApp: isApp(),
-			onClickOutside: undefined as ((e: MouseEvent) => void) | undefined,
-		};
+		return { isApp: isApp() };
 	},
 	computed: {
 		providers() {
@@ -167,19 +165,6 @@ export default defineComponent({
 		hasVehicles() {
 			return Object.keys(this.vehicles).length > 0;
 		},
-	},
-	mounted() {
-		this.onClickOutside = (e: MouseEvent) => {
-			if (this.open && !this.$el.contains(e.target as Node)) {
-				this.$emit("close");
-			}
-		};
-		document.addEventListener("click", this.onClickOutside, true);
-	},
-	unmounted() {
-		if (this.onClickOutside) {
-			document.removeEventListener("click", this.onClickOutside, true);
-		}
 	},
 	methods: {
 		handleAuthRequired() {

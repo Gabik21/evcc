@@ -34,7 +34,10 @@ var requiredKeys = []string{
 	"vehicle.vehicle.travelledDistance",
 }
 
-const requiredVersion = "v6"
+const (
+	containerName   = "evcc.io"
+	requiredVersion = "v6"
+)
 
 type API struct {
 	*request.Helper
