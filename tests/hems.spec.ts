@@ -127,7 +127,10 @@ maxconsumptionpower:
     await expectModalHidden(hemsModal);
 
     // enable experimental
-    await page.getByTestId("generalconfig-experimental").getByRole("button", { name: "edit" }).click();
+    await page
+      .getByTestId("generalconfig-experimental")
+      .getByRole("button", { name: "edit" })
+      .click();
     const experimentalModal = page.getByTestId("experimental-modal");
     await expectModalVisible(experimentalModal);
     await experimentalModal.getByLabel("Enable experimental features.").click();
@@ -155,6 +158,12 @@ maxconsumptionpower:
 
     await hemsModal.getByRole("button", { name: "Close" }).click();
     await expectModalHidden(hemsModal);
+
+    // card shows the static limit instead of unconfigured
+    const hemsCard = page.getByTestId("hems");
+    await expect(hemsCard).toContainText("Grid export limit");
+    await expect(hemsCard).toContainText("7.0 kW");
+    await expect(hemsCard).not.toContainText("Configured");
 
     // persisted across restart
     await restart(CONFIG);
@@ -336,9 +345,7 @@ w4:${signalSource("w4")}`
 
     // no signals: no limits
     await page.goto("/#/config");
-    await expect(hems).toContainText(
-      ["Consumption limited", "no", "Feed-in limited", "no"].join("")
-    );
+    await expect(hems).toContainText(["Consumption limited", "no", "Feed-in limit", "no"].join(""));
     await expect(hint).not.toBeVisible();
 
     // dim (W4): consumption limited
@@ -382,9 +389,7 @@ w4:${signalSource("w4")}`
     await expect(hint).not.toBeVisible();
     await page.reload();
     await expect(pvBanner).not.toBeVisible();
-    await expect(hems).toContainText(
-      ["Consumption limited", "no", "Feed-in limited", "no"].join("")
-    );
+    await expect(hems).toContainText(["Consumption limited", "no", "Feed-in limit", "no"].join(""));
 
     await stopSimulator();
   });

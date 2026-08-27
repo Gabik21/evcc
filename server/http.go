@@ -55,6 +55,7 @@ type Customization struct {
 	Website   string
 	Email     string
 	Phone     string
+	Theme     string
 }
 
 // NewHTTPd creates HTTP server with configured routes for loadpoint
@@ -110,6 +111,12 @@ func NewHTTPd(addr string, hub *SocketHub, custom Customization) *HTTPd {
 
 	if (custom.LogoLight == "") != (custom.LogoDark == "") {
 		log.FATAL.Fatal("custom logo requires both light and dark variants")
+	}
+
+	switch custom.Theme {
+	case "", "auto", "light", "dark":
+	default:
+		log.FATAL.Fatalf("invalid custom theme: %s (expected auto, light, dark)", custom.Theme)
 	}
 
 	for path, file := range map[string]string{
@@ -191,13 +198,13 @@ func (s *HTTPd) RegisterSiteHandlers(site site.API) {
 		"smartcostdelete":         {"DELETE", "/smartcostlimit", updateSmartCostLimit(site, smartCostLimit)},
 		"smartfeedin":             {"POST", "/smartfeedinprioritylimit/{value:-?[0-9.]+}", updateSmartCostLimit(site, smartFeedInPriorityLimit)},
 		"smartfeedindelete":       {"DELETE", "/smartfeedinprioritylimit", updateSmartCostLimit(site, smartFeedInPriorityLimit)},
-		"tariff":                  {"GET", "/tariff/{tariff:[a-z]+}", tariffHandler(site)},
+		"tariff":                  {"GET", "/tariff/{tariff:[a-z0-9]+}", tariffHandler(site)},
 		"sessions":                {"GET", "/sessions", sessionHandler},
 		"updatesession":           {"PUT", "/session/{id:[0-9]+}", updateSessionHandler},
 		"deletesession":           {"DELETE", "/session/{id:[0-9]+}", deleteSessionHandler},
 		"gridsessions":            {"GET", "/gridsessions", gridSessionsHandler},
 		"energyhistory":           {"GET", "/history/energy", energyHistoryHandler},
-		"optimize":                {"POST", "/optimize", getHandler(site.Optimize)},
+		"optimize":                {"POST", "/optimize", callHandler(site.Optimize)},
 		"telemetry2":              {"POST", "/settings/telemetry/{value:[01truefalse]+}", boolHandler(telemetry.Enable, telemetry.Enabled)},
 		"devicecolors":            {"PUT", "/devicecolors", updateDeviceColor(site)},
 
@@ -226,7 +233,7 @@ func (s *HTTPd) RegisterSiteHandlers(site site.API) {
 
 	// loadpoint api
 	// TODO any loadpoint
-	for id, lp := range site.Loadpoints() {
+	for id, lp := range site.ActiveLoadpoints() {
 		api := api.PathPrefix(fmt.Sprintf("/loadpoints/%d", id+1)).Subrouter()
 
 		routes := map[string]route{
@@ -313,14 +320,14 @@ func (s *HTTPd) RegisterSystemHandler(site *core.Site, pub publisher, cache *uti
 		}
 
 		// API key endpoints require an authenticated session.
-		ensureAuth := ensureAuthHandler(auth)
+		ensureAuth := EnsureAuthHandler(auth)
 		api.Methods("GET").Path("/apikey").Handler(ensureAuth(apiKeyStatusHandler(auth)))
 		api.Methods("POST").Path("/apikey").Handler(ensureAuth(regenerateApiKeyHandler(auth)))
 	}
 
 	{ // api/config
 		api := api.PathPrefix("/config").Subrouter()
-		api.Use(ensureAuthHandler(auth))
+		api.Use(EnsureAuthHandler(auth))
 
 		routes := map[string]route{
 			"auth":               {"POST", "/auth", authHandler},
@@ -416,7 +423,7 @@ func (s *HTTPd) RegisterSystemHandler(site *core.Site, pub publisher, cache *uti
 
 	{ // api/system
 		api := api.PathPrefix("/system").Subrouter()
-		api.Use(ensureAuthHandler(auth))
+		api.Use(EnsureAuthHandler(auth))
 
 		routes := map[string]route{
 			"log":        {"GET", "/log", logHandler},
@@ -438,9 +445,11 @@ func (s *HTTPd) RegisterSystemHandler(site *core.Site, pub publisher, cache *uti
 		api.Use(ensureDbAuth(auth))
 
 		routes := map[string]route{
-			"backup":  {"GET", "/backup", getBackup()},
-			"restore": {"POST", "/restore", restoreDatabase(shutdown)},
-			"reset":   {"POST", "/reset", resetDatabase(shutdown)},
+			"backup":        {"GET", "/backup", getBackup()},
+			"restore":       {"POST", "/restore", restoreDatabase(shutdown)},
+			"reset":         {"POST", "/reset", resetDatabase(shutdown)},
+			"deleteenergy":  {"DELETE", "/metrics/energy", deleteEnergyHandler},
+			"deletetariffs": {"DELETE", "/metrics/tariffs", deleteTariffsHandler},
 		}
 
 		for _, r := range routes {
