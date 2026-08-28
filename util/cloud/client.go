@@ -1,13 +1,12 @@
 package cloud
 
 import (
-	"crypto/tls"
 	_ "embed"
 	"time"
 
 	"github.com/evcc-io/evcc/util"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 var (
@@ -21,10 +20,9 @@ func Connection() (*grpc.ClientConn, error) {
 		return conn, nil
 	}
 
-	creds := credentials.NewTLS(new(tls.Config))
 	// close idle connection shortly after startup auth instead of churning against the server's idle close
 	conn, err := grpc.NewClient(hostport,
-		grpc.WithTransportCredentials(creds),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithIdleTimeout(5*time.Second),
 	)
 
