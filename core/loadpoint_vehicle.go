@@ -203,10 +203,10 @@ func (lp *Loadpoint) setActiveVehicle(v api.Vehicle) {
 			}
 		}
 
-		if vMeter, ok := api.Cap[api.Meter](v); ok && !lp.HasChargeMeter() {
+		if _, ok := api.Cap[api.Meter](v); ok && !lp.HasChargeMeter() {
 			lp.log.DEBUG.Print("Loadpoint has no charge meter but vehicle has")
 			lp.previousMeter = lp.chargeMeter
-			lp.chargeMeter = vMeter
+			lp.chargeMeter = newChargeMeter(v)
 		}
 
 		lp.addTask(lp.vehicleOdometer)
@@ -217,6 +217,7 @@ func (lp *Loadpoint) setActiveVehicle(v api.Vehicle) {
 		lp.unpublishVehicleIdentity()
 		if lp.previousMeter != nil {
 			lp.chargeMeter = lp.previousMeter
+			lp.previousMeter = nil
 		}
 	}
 

@@ -146,9 +146,9 @@ type Loadpoint struct {
 	chargeRater      api.ChargeRater
 	chargedAtStartup float64 // session energy at startup
 
-	circuit        api.Circuit // Circuit
-	chargeMeter    api.Meter   // Charger usage meter
-	previousMeter  api.Meter
+	circuit        api.Circuit  // Circuit
+	chargeMeter    *chargeMeter // Charger usage meter
+	previousMeter  *chargeMeter
 	chargeEnergy   *metrics.Collector // Charger usage collector
 	vehicle        api.Vehicle        // Currently active vehicle
 	defaultVehicle api.Vehicle        // Default vehicle (disables detection)
@@ -243,10 +243,11 @@ func NewLoadpointFromConfig(log *util.Logger, settings settings.Settings, collec
 		if err != nil {
 			return lp, fmt.Errorf("meter: %w", err)
 		}
-		lp.chargeMeter = dev.Instance()
-		if lp.chargeMeter == nil {
+		mt := dev.Instance()
+		if mt == nil {
 			return lp, errors.New("missing charge meter instance")
 		}
+		lp.chargeMeter = newChargeMeter(mt)
 	}
 
 	// default vehicle
@@ -445,6 +446,11 @@ func (lp *Loadpoint) restoreSettings() {
 	}
 }
 
+// RequestUpdate requests site to update this loadpoint
+func (lp *Loadpoint) RequestUpdate() {
+	lp.requestUpdate()
+}
+
 // requestUpdate requests site to update this loadpoint
 func (lp *Loadpoint) requestUpdate() {
 	select {
@@ -461,25 +467,13 @@ func (lp *Loadpoint) configureChargerType(charger api.Charger) {
 	if lp.chargeMeter == nil {
 		integrated = true
 
-		if mt, ok := api.Cap[api.Meter](charger); ok {
-			// preserve charger's capability registry and static interface
-			// implementations so that subsequent capability checks on
-			// chargeMeter (e.g. MeterEnergy, PhaseCurrents) still work for
-			// decorated chargers (https://github.com/evcc-io/evcc/issues/28915)
-			// and for chargers that statically implement these interfaces
-			// (https://github.com/evcc-io/evcc/issues/29877).
-			if c, ok := charger.(api.Capable); ok {
-				lp.chargeMeter = &capableMeter{Meter: mt, source: c}
-			} else {
-				lp.chargeMeter = mt
-			}
-		} else {
-			mt := new(wrapper.ChargeMeter)
+		lp.chargeMeter = newChargeMeter(charger)
+		if lp.chargeMeter.fake != nil {
+			meter := lp.chargeMeter.fake
 			_ = lp.bus.Subscribe(evChargeCurrent, func(current float64) {
-				lp.evChargeCurrentWrappedMeterHandler(mt, current)
+				lp.evChargeCurrentWrappedMeterHandler(meter, current)
 			})
-			_ = lp.bus.Subscribe(evChargeStop, func() { mt.SetPower(0) })
-			lp.chargeMeter = mt
+			_ = lp.bus.Subscribe(evChargeStop, func() { meter.SetPower(0) })
 		}
 	}
 
@@ -889,7 +883,7 @@ func (lp *Loadpoint) syncCharger() error {
 	}
 
 	// #1: check charger logic, fix charger state if necessary (for chargers that start charging while being disabled)
-	if !enabled && lp.charging() {
+	if !enabled && lp.charging() && lp.phaseSwitchCompleted() {
 		lp.log.WARN.Println("charger logic error: disabled but charging")
 
 		// treat as enabled when charging for further validations
@@ -2189,9 +2183,20 @@ func (lp *Loadpoint) publishSocAndRange() {
 	limitSoc := min(apiLimitSoc, lp.EffectiveLimitSoc())
 	v := lp.GetVehicle()
 
+	lp.RLock()
+	limitEnergy, energyLimited := lp.remainingLimitEnergy()
+	lp.RUnlock()
+
 	var d time.Duration
 	var e float64
 	switch {
+	case energyLimited:
+		// energy-limited session without soc: remaining energy and duration follow
+		// the limit, not the full capacity (#33627)
+		e = limitEnergy
+		if lp.charging() && lp.chargePower > 0 {
+			d = time.Duration(e * 1e3 / lp.chargePower * float64(time.Hour)).Round(time.Second)
+		}
 	case socEstimator != nil:
 		if lp.charging() {
 			d = socEstimator.RemainingChargeDuration(float64(limitSoc), lp.chargePower)
